@@ -5,21 +5,73 @@ use App\Models\User;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Hash;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Validation\ValidationException;
 use jeremykenedy\LaravelRoles\Models\Role;
 
 class AuthController extends Controller
 {
+    private function verifyHcaptcha($token)
+    {
+        $secret = env('HCAPTCHA_SECRET_KEY');
+        $response = Http::withOptions([
+            'verify' => false // DISABLES SSL VERIFICATION
+        ])->asForm()->post('https://hcaptcha.com/siteverify', [
+            'secret' => $secret,
+            'response' => $this->sanitizeInput($token)
+        ]);
+
+        $body = $response->json();
+
+        if (!$response->successful() || !$body['success']) {
+            $errorCodes = $body['error-codes'] ?? ['unknown-error'];
+            throw new \Exception('Captcha verification failed: ' . implode(', ', $errorCodes));
+        }
+
+        return true;
+    }
+
+    private function sanitizeInput($input)
+    {
+        if (is_array($input)) {
+            return array_map([$this, 'sanitizeInput'], $input);
+        }
+
+        // Convert to string if not already
+        $string = (string) $input;
+
+        // Remove whitespace from beginning and end
+        $string = trim($string);
+
+        // Strip HTML and PHP tags
+        $string = strip_tags($string);
+
+        // Convert special characters to HTML entities
+        $string = htmlspecialchars($string, ENT_QUOTES, 'UTF-8');
+
+        // Remove excessive whitespace
+        $string = preg_replace('/\s+/', ' ', $string);
+
+        return $string;
+    }
+
     public function register(Request $request)
     {
         try {
-            $validated = $request->validate([
+            $sanitizedData = $this->sanitizeInput($request->all());
+            $validated = validator($sanitizedData, [
                 'name' => 'required|string|max:255',
                 'email' => 'required|string|email|max:255|unique:users',
                 'password' => 'required|string|min:8',
-            ]);
+                'hcaptchaToken' => 'required|string'
+            ])->validate();
+
+            $this->verifyHcaptcha($validated['hcaptchaToken']);
+
         } catch (ValidationException $e) {
             return response()->json(['message' => 'Invalid registration data', 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
         $user = User::create([
@@ -39,15 +91,22 @@ class AuthController extends Controller
     public function login(Request $request)
     {
         try {
-            $validated = $request->validate([
+            $sanitizedData = $this->sanitizeInput($request->all());
+            $validated = validator($sanitizedData, [
                 'email' => 'required|string|email',
                 'password' => 'required|string',
-            ]);
+                'hcaptchaToken' => 'required|string'
+            ])->validate();
+
+            $this->verifyHcaptcha($validated['hcaptchaToken']);
+
         } catch (ValidationException $e) {
             return response()->json(['message' => 'Invalid login data', 'errors' => $e->errors()], 422);
+        } catch (\Exception $e) {
+            return response()->json(['message' => $e->getMessage()], 422);
         }
 
-        if (!Auth::attempt($validated)) {
+        if (!Auth::attempt(['email' => $validated['email'], 'password' => $validated['password']])) {
             return response()->json(['message' => 'Invalid credentials'], 401);
         }
 
@@ -78,12 +137,13 @@ class AuthController extends Controller
         $user = Auth::user();
 
         try {
-            $validated = $request->validate([
+            $sanitizedData = $this->sanitizeInput($request->all());
+            $validated = validator($sanitizedData, [
                 'email' => 'nullable|string|email|max:255|unique:users,email,' . $user->id,
                 'oldPassword' => 'required_with:newPassword|string',
                 'newPassword' => 'nullable|string|min:8',
                 'retypePassword' => 'nullable|string|same:newPassword',
-            ]);
+            ])->validate();
         } catch (ValidationException $e) {
             return response()->json(['message' => 'Invalid data', 'errors' => $e->errors()], 422);
         }
@@ -118,12 +178,15 @@ class AuthController extends Controller
 
     public function assignRole(Request $request, $userId)
     {
-        $request->validate([
-            'role_id' => 'required|exists:roles,id',
-        ]);
+        $sanitizedData = $this->sanitizeInput($request->all());
+        $sanitizedUserId = $this->sanitizeInput($userId);
 
-        $user = User::findOrFail($userId);
-        $role = Role::findOrFail($request->role_id);
+        $validated = validator($sanitizedData, [
+            'role_id' => 'required|exists:roles,id',
+        ])->validate();
+
+        $user = User::findOrFail($sanitizedUserId);
+        $role = Role::findOrFail($validated['role_id']);
 
         if ($user->hasRole($role->slug)) {
             return response()->json(['message' => 'User already has this role'], 400);
@@ -136,12 +199,15 @@ class AuthController extends Controller
 
     public function removeRole(Request $request, $userId)
     {
-        $request->validate([
-            'role_id' => 'required|exists:roles,id',
-        ]);
+        $sanitizedData = $this->sanitizeInput($request->all());
+        $sanitizedUserId = $this->sanitizeInput($userId);
 
-        $user = User::findOrFail($userId);
-        $role = Role::findOrFail($request->role_id);
+        $validated = validator($sanitizedData, [
+            'role_id' => 'required|exists:roles,id',
+        ])->validate();
+
+        $user = User::findOrFail($sanitizedUserId);
+        $role = Role::findOrFail($validated['role_id']);
 
         if (!$user->hasRole($role->slug)) {
             return response()->json(['message' => 'User does not have this role'], 400);
@@ -154,19 +220,22 @@ class AuthController extends Controller
 
     public function updateUserDetails(Request $request, $userId)
     {
+        $sanitizedUserId = $this->sanitizeInput($userId);
+
         try {
-            $user = User::findOrFail($userId);
+            $user = User::findOrFail($sanitizedUserId);
         } catch (\Exception $e) {
             return response()->json(['message' => 'User not found'], 404);
         }
 
         try {
-            $validated = $request->validate([
+            $sanitizedData = $this->sanitizeInput($request->all());
+            $validated = validator($sanitizedData, [
                 'name' => 'nullable|string|max:255',
-                'email' => 'nullable|string|email|max:255|unique:users,email,' . $userId,
+                'email' => 'nullable|string|email|max:255|unique:users,email,' . $sanitizedUserId,
                 'newPassword' => 'nullable|string|min:8',
                 'retypePassword' => 'nullable|string|same:newPassword',
-            ]);
+            ])->validate();
         } catch (ValidationException $e) {
             return response()->json(['message' => 'Invalid input data', 'errors' => $e->errors()], 422);
         }
@@ -194,18 +263,23 @@ class AuthController extends Controller
 
     public function getUserById($userId)
     {
+        $sanitizedUserId = $this->sanitizeInput($userId);
+
         try {
-            $user = User::with(['roles'])->findOrFail($userId);
+            $user = User::with(['roles'])->findOrFail($sanitizedUserId);
 
             return response()->json($user, 200);
         } catch (\Exception $e) {
             return response()->json(['message' => 'User not found'], 404);
         }
     }
+
     public function deleteUser($userId)
     {
+        $sanitizedUserId = $this->sanitizeInput($userId);
+
         try {
-            $user = User::findOrFail($userId);
+            $user = User::findOrFail($sanitizedUserId);
 
             $user->delete();
 
