@@ -1,14 +1,20 @@
 #!/bin/bash
 set -e
 
-# Wait for PostgreSQL to be ready
-echo "⏳ Waiting for database to be ready..."
-until nc -z -v -w30 db 5432
-do
-  echo "Database not ready yet... retrying in 2s"
-  sleep 2
-done
-echo "✅ Database is ready!"
+# Wait for PostgreSQL database to be ready
+if [ -n "$DB_HOST" ] && [ -n "$DB_PORT" ]; then
+  echo "⏳ Waiting for PostgreSQL at $DB_HOST:$DB_PORT..."
+  for i in {1..10}; do
+    if nc -z "$DB_HOST" "$DB_PORT"; then
+      echo "✅ PostgreSQL is ready!"
+      break
+    fi
+    echo "Database not ready yet... retrying in 3s"
+    sleep 3
+  done
+else
+  echo "⚠️ No DB_HOST or DB_PORT defined, skipping database wait..."
+fi
 
 # Run migrations and seeders
 echo "🚀 Running migrations and seeders..."
