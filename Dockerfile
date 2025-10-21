@@ -3,7 +3,7 @@ FROM php:8.3-apache
 
 # Install system dependencies, PostgreSQL extension, and utilities
 RUN apt-get update && apt-get install -y \
-    git unzip libpng-dev libjpeg-dev libfreetype6-dev zip libonig-dev libxml2-dev curl netcat-traditional \
+    git unzip libpng-dev libjpeg-dev libfreetype6-dev zip libonig-dev libxml2-dev curl netcat-traditional libpq-dev \
     && docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd
 
 # Enable Apache mod_rewrite for Laravel routing
@@ -12,7 +12,7 @@ RUN a2enmod rewrite
 # Set working directory
 WORKDIR /var/www/html
 
-# Copy all project files
+# Copy project files into container
 COPY . .
 
 # Point Apache DocumentRoot to Laravel's public folder
