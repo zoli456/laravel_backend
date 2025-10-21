@@ -22,6 +22,10 @@ fi
 echo "🛠️ Running migrations..."
 php artisan migrate --force || echo "⚠️ Migration failed (check DB connection)."
 
+# Seed the database
+echo "🌱 Seeding database..."
+php artisan db:seed --force || echo "⚠️ Seeding failed (check DB connection or seeder setup)."
+
 # Clear and cache Laravel configs for production
 php artisan config:cache
 php artisan route:cache
