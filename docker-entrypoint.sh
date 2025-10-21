@@ -1,6 +1,10 @@
 #!/bin/bash
 set -e
 
+# Set Apache ServerName to suppress warnings
+echo "🔧 Setting Apache ServerName..."
+echo "ServerName localhost" >> /etc/apache2/apache2.conf
+
 # Wait for PostgreSQL database to be ready
 if [ -n "$DB_HOST" ] && [ -n "$DB_PORT" ]; then
   echo "⏳ Waiting for PostgreSQL at $DB_HOST:$DB_PORT..."
@@ -21,11 +25,17 @@ echo "🚀 Running migrations and seeders..."
 php artisan migrate --force
 php artisan db:seed --force
 
-# Adjust Apache to listen on the Render port (dynamic)
+# Adjust Apache to listen on the Render port
 if [ -n "$PORT" ]; then
   echo "🔧 Configuring Apache to listen on port $PORT..."
   sed -i "s/Listen .*/Listen ${PORT}/" /etc/apache2/ports.conf
   sed -i "s/<VirtualHost \*:.*/<VirtualHost \*:${PORT}>/" /etc/apache2/sites-available/000-default.conf
+fi
+
+# Ensure Apache serves Laravel's public directory
+if [ -d "/var/www/html/public" ]; then
+  echo "📂 Setting Apache DocumentRoot to /var/www/html/public"
+  sed -i 's|DocumentRoot /var/www/html|DocumentRoot /var/www/html/public|' /etc/apache2/sites-available/000-default.conf
 fi
 
 echo "✅ Starting Apache..."
