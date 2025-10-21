@@ -1,40 +1,69 @@
-# Use official PHP 8.3 image with Apache
-FROM php:8.3-apache
+# -------------------------------
+# 1. Base image
+# -------------------------------
+FROM php:8.2-apache
 
-# Install system dependencies, PostgreSQL extension, and utilities
-RUN apt-get update && apt-get install -y \
-    git unzip libpng-dev libjpeg-dev libfreetype6-dev zip libonig-dev libxml2-dev curl netcat-traditional libpq-dev \
-    && docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd \
-    && apt-get clean && rm -rf /var/lib/apt/lists/*
-
-# Enable Apache mod_rewrite for Laravel routing
-RUN a2enmod rewrite
-
-# Set working directory
+# -------------------------------
+# 2. Set working directory
+# -------------------------------
 WORKDIR /var/www/html
 
-# Copy project files into container
-COPY . .
+# -------------------------------
+# 3. Install system dependencies
+# -------------------------------
+RUN apt-get update && apt-get install -y \
+    git unzip libpng-dev libjpeg-dev libfreetype6-dev zip libonig-dev libxml2-dev curl \
+    libpq-dev netcat-traditional \
+    && docker-php-ext-install pdo pdo_pgsql mbstring exif pcntl bcmath gd
 
-# Point Apache DocumentRoot to Laravel's public folder
-RUN sed -i 's|/var/www/html|/var/www/html/public|g' /etc/apache2/sites-available/000-default.conf
+# -------------------------------
+# 4. Enable Apache rewrite module
+# -------------------------------
+RUN a2enmod rewrite
 
-# Install Composer globally
-RUN curl -sS https://getcomposer.org/installer | php -- --install-dir=/usr/local/bin --filename=composer
+# -------------------------------
+# 5. Copy Laravel app
+# -------------------------------
+COPY . /var/www/html
 
-# Install Laravel dependencies (optimized for production)
+# -------------------------------
+# 6. Install Composer dependencies
+# -------------------------------
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
 RUN composer install --no-dev --optimize-autoloader
 
-# Set permissions for storage and cache
+# -------------------------------
+# 7. Fix permissions
+# -------------------------------
 RUN chown -R www-data:www-data /var/www/html/storage /var/www/html/bootstrap/cache
 
-# Copy entrypoint script
+# -------------------------------
+# 8. Environment setup
+# -------------------------------
+ENV APP_ENV=production
+ENV APP_DEBUG=false
+ENV PORT=10000
+
+# -------------------------------
+# 9. Apache configuration for Render
+# -------------------------------
+RUN sed -i "s/Listen 80/Listen ${PORT}/" /etc/apache2/ports.conf && \
+    sed -i "s/<VirtualHost \*:80>/<VirtualHost \*:${PORT}>/" /etc/apache2/sites-available/000-default.conf
+
+EXPOSE 10000
+
+# -------------------------------
+# 10. Copy entrypoint script
+# -------------------------------
 COPY docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 RUN chmod +x /usr/local/bin/docker-entrypoint.sh
 
-# Expose port for Render or local use
-ENV PORT=8080
-EXPOSE 8080
+# -------------------------------
+# 11. Set entrypoint
+# -------------------------------
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
 
-# Use our entrypoint
-ENTRYPOINT ["docker-entrypoint.sh"]
+# -------------------------------
+# 12. Start Apache
+# -------------------------------
+CMD ["apache2-foreground"]
