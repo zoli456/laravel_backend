@@ -18,30 +18,36 @@ class UsersTableSeeder extends Seeder
         $permissions = config('roles.models.permission')::all();
 
         /*
-         * Add Users
-         *
+         * Add Admin
          */
         if (config('roles.models.defaultUser')::where('email', '=', 'admin@admin.com')->first() === null) {
-            $newUser = config('roles.models.defaultUser')::create([
+            $adminUser = config('roles.models.defaultUser')::create([
                 'name'     => 'Admin',
                 'email'    => 'admin@admin.com',
                 'password' => bcrypt('password'),
             ]);
 
-            $newUser->attachRole($adminRole);
+            // Attach both Admin and User roles
+            $adminUser->attachRole($adminRole);
+            $adminUser->attachRole($userRole);
+
+            // Give all permissions
             foreach ($permissions as $permission) {
-                $newUser->attachPermission($permission);
+                $adminUser->attachPermission($permission);
             }
         }
 
+        /*
+         * Add Regular User
+         */
         if (config('roles.models.defaultUser')::where('email', '=', 'user@user.com')->first() === null) {
-            $newUser = config('roles.models.defaultUser')::create([
+            $normalUser = config('roles.models.defaultUser')::create([
                 'name'     => 'User',
                 'email'    => 'user@user.com',
                 'password' => bcrypt('password'),
             ]);
 
-            $newUser->attachRole($userRole);
+            $normalUser->attachRole($userRole);
         }
     }
 }
